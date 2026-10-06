@@ -24,6 +24,24 @@ object Layouts {
         countryCode = countryCode,
     )
 
+    /** A layout taken from PDGA (found by course search); its rounds are looked up afterwards. */
+    fun fromPdgaSearch(id: String, result: PdgaCourseResult, countryCode: String): Layout {
+        val info = result.layout
+        val details = info.holeDetails.takeIf { it.isNotEmpty() && (info.holes == null || it.size == info.holes) }
+        return Layout(
+            id = id,
+            name = listOfNotNull(info.courseName, info.layoutName).joinToString(" - ").ifBlank { "PDGA layout" },
+            holes = details ?: guessHoles(info.holes ?: 18, info.par),
+            pdgaLayouts = listOf(info),
+            source = "PDGA",
+            parsEstimated = details == null,
+            courseName = info.courseName.orEmpty(),
+            city = result.town,
+            countryCode = countryCode,
+            lengthMeters = info.lengthMeters,
+        )
+    }
+
     /** Declares the candidate PDGA layout to be the same as [layout] and adds its rounds. */
     fun linkCandidate(layout: Layout, candidate: Candidate): Pair<Layout, Int> {
         var linked = layout.copy(pdgaLayouts = (layout.pdgaLayouts + candidate.layouts).distinctBy { it.key })

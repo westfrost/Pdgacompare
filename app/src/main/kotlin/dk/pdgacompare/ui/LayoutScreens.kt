@@ -96,12 +96,31 @@ fun NewLayoutScreen(vm: AppViewModel) {
             }
             vm.progress?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
             vm.courseResults?.let { results ->
-                if (results.isNotEmpty()) Text("Tap the layout you play:", style = MaterialTheme.typography.bodyMedium)
+                if (results.isNotEmpty()) Text("Disc Golf Metrix — tap the layout you play:", style = MaterialTheme.typography.labelLarge)
                 for (ref in results) {
                     Card(Modifier.fillMaxWidth().clickable(enabled = !vm.busy) { vm.createLayoutFromSearch(ref) }) {
                         Column(Modifier.padding(12.dp)) {
                             Text(ref.displayName, fontWeight = FontWeight.SemiBold)
                             if (ref.city.isNotBlank()) Text(ref.city, style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
+            }
+
+            vm.pdgaCourseResults?.takeIf { it.isNotEmpty() }?.let { results ->
+                Text(
+                    "PDGA — layouts played in matching events:",
+                    style = MaterialTheme.typography.labelLarge,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+                for (result in results) {
+                    Card(Modifier.fillMaxWidth().clickable(enabled = !vm.busy) { vm.createLayoutFromPdgaSearch(result) }) {
+                        Column(Modifier.padding(12.dp)) {
+                            Text(result.layout.label, fontWeight = FontWeight.SemiBold)
+                            Text(
+                                "${result.town} · in ${result.eventCount} recent event(s)",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
                         }
                     }
                 }

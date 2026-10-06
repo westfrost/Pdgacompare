@@ -3,6 +3,7 @@ package dk.pdgacompare.core
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class PdgaParserTest {
 
@@ -64,6 +65,27 @@ class PdgaParserTest {
         assertEquals(10, layout.par)
         assertEquals(274, layout.lengthMeters)
         assertEquals(listOf(Hole(1, 3, 76), Hole(2, 4, 122), Hole(3, 3, 76)), layout.holeDetails)
+    }
+
+    @Test
+    fun parsesLiveEventLayoutsWithHolePars() {
+        // Shape of live_results_fetch_event (trimmed).
+        val layouts = PdgaParser.parseLiveEventLayouts(
+            """{"data":{"Name":"TreeGrip Open","Layouts":[{"LayoutID":762133,"CourseID":305552,"CourseName":"TreeGrip",
+               "Name":"Ugly (White flag)","Holes":3,"Par":11,"Length":310,"Units":"Meters","H1":3,"H2":4,
+               "Details":[{"Hole":"H1","Label":"1","Par":3,"Length":74},{"Hole":"H2","Label":"2","Par":4,"Length":162},{"Hole":"H3","Label":"3","Par":4,"Length":74}]}]}}""",
+        )
+        assertEquals(
+            listOf(PdgaLayoutInfo("TreeGrip", "Ugly (White flag)", 3, 11, 310, listOf(Hole(1, 3, 74), Hole(2, 4, 162), Hole(3, 4, 74)))),
+            layouts,
+        )
+        val result = PdgaCourseSearch.group(listOf(layouts[0] to PdgaEventSummary(1, "TreeGrip Open", "2026-06-07", "Bjerringbro, Denmark"))).single()
+        assertEquals("Bjerringbro", result.town)
+        val layout = Layouts.fromPdgaSearch("x", result, "DK")
+        assertEquals("TreeGrip - Ugly (White flag)", layout.name)
+        assertEquals(listOf(3, 4, 4), layout.holes.map { it.par })
+        assertEquals("TreeGrip", layout.courseName)
+        assertTrue(layout.isLinkedTo(layouts[0]))
     }
 
     @Test

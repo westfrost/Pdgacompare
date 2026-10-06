@@ -145,3 +145,28 @@ object PdgaRoundFinder {
         return kotlin.math.abs(a - b).toDouble() / maxOf(a, b)
     }
 }
+
+/** A PDGA layout found through events matching a course search. */
+data class PdgaCourseResult(val layout: PdgaLayoutInfo, val eventCount: Int, val location: String) {
+    /** Town part of the event location ("Bjerringbro, Denmark" -> "Bjerringbro"). */
+    val town: String get() = location.substringBefore(',').trim()
+}
+
+object PdgaCourseSearch {
+    /** Distinct layouts (see [PdgaLayoutInfo.sameAs]) of the events, most played first. */
+    fun group(found: List<Pair<PdgaLayoutInfo, PdgaEventSummary>>): List<PdgaCourseResult> {
+        val groups = mutableListOf<MutableList<Pair<PdgaLayoutInfo, PdgaEventSummary>>>()
+        // Layouts without a course name ("Default Layout") cannot be matched to anything.
+        for (item in found.filter { !it.first.courseName.isNullOrBlank() }) {
+            val group = groups.firstOrNull { it.first().first.sameAs(item.first) }
+            if (group != null) group += item else groups += mutableListOf(item)
+        }
+        return groups.map { g ->
+            PdgaCourseResult(
+                layout = g.maxBy { it.first.holeDetails.size }.first,
+                eventCount = g.map { it.second.id }.distinct().size,
+                location = g.first().second.location,
+            )
+        }.sortedWith(compareBy<PdgaCourseResult> { it.layout.courseName.orEmpty().lowercase() }.thenByDescending { it.eventCount })
+    }
+}

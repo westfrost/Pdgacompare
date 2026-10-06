@@ -16,8 +16,9 @@ your score would have got, based on real PDGA results on the same layout.
 
 ## Using the app
 
-- **Add layout → Find course**: search by course name (country DK by default). Pick your layout
-  from the Disc Golf Metrix list; holes and pars are read from its Metrix page.
+- **Add layout → Find course**: search by course name (country DK by default). Results come from
+  the Disc Golf Metrix course list (holes and pars read from its Metrix page) and from PDGA events
+  whose name matches (layouts with hole pars from PDGA Live) — Metrix' list misses many courses.
 - The app then searches PDGA events in the country over the last 4 years, by the course's name
   and town, and reads the newest ones. PDGA layouts count as the same when course, holes and par
   match and lengths are within 5% (tournament directors name the same tees differently per event).

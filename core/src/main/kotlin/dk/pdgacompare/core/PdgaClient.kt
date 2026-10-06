@@ -89,6 +89,11 @@ class PdgaClient internal constructor(private val http: OkHttpClient) {
         found.values.toList()
     }
 
+    /** The layouts an event was played on, with hole pars (PDGA Live; a small request). */
+    suspend fun fetchEventLayouts(eventId: Long): List<PdgaLayoutInfo> = withContext(Dispatchers.IO) {
+        PdgaParser.parseLiveEventLayouts(http.getText("$LIVE/live_results_fetch_event?TournID=$eventId"))
+    }
+
     private suspend fun fetchLive(eventId: Long): PdgaEvent = coroutineScope {
         val (suffix, eventJson) = LIVE_SUFFIXES.firstNotNullOf { suffix ->
             runCatching { suffix to http.getText("$LIVE/live_results_fetch_event$suffix?TournID=$eventId") }.getOrNull()

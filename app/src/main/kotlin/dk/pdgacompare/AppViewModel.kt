@@ -16,6 +16,8 @@ import dk.pdgacompare.core.MetrixClient
 import dk.pdgacompare.core.MetrixCourse
 import dk.pdgacompare.core.MetrixCourseRef
 import dk.pdgacompare.core.PdgaClient
+import dk.pdgacompare.core.PdgaCourseResult
+import dk.pdgacompare.core.PdgaCourseSearch
 import dk.pdgacompare.core.PdgaEvent
 import dk.pdgacompare.core.PdgaLayoutInfo
 import dk.pdgacompare.core.PdgaParser
@@ -58,6 +60,7 @@ data class PendingChoice(
 
 private const val SEARCH_YEARS = 4L
 private const val MAX_EVENTS_TO_CHECK = 30
+private const val PDGA_EVENTS_FOR_COURSE_SEARCH = 8
 
 class AppViewModel(app: Application) : AndroidViewModel(app) {
 
@@ -87,6 +90,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Result of the course search on the new-layout screen. */
     var courseResults by mutableStateOf<List<MetrixCourseRef>?>(null)
+        private set
+
+    /** PDGA layouts found by the course search (for courses Metrix does not list). */
+    var pdgaCourseResults by mutableStateOf<List<PdgaCourseResult>?>(null)
         private set
 
     /** What a long-running fetch is doing right now. */
@@ -160,13 +167,42 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setCountryCode(code: String) = update { it.copy(countryCode = code.trim().uppercase().take(2)) }
 
+    /** Searches Disc Golf Metrix' course list and PDGA events (whose layouts name the course) by name. */
     fun searchCourses(name: String) = work {
         if (name.isBlank()) error("Enter a course name")
         courseResults = null
-        val results = metrix.searchCourses(name, state.countryCode)
+        pdgaCourseResults = null
+        progress = "Searching Disc Golf Metrix…"
+        val fromMetrix = runCatching { metrix.searchCourses(name, state.countryCode) }
         // Layouts first; a course with layouts is only useful through one of them.
-        courseResults = results.filter { it.isLayout }.ifEmpty { results }
-        if (results.isEmpty()) message = "No courses named \"$name\" in ${state.countryCode} on Disc Golf Metrix"
+        courseResults = fromMetrix.getOrDefault(emptyList()).let { r -> r.filter { it.isLayout }.ifEmpty { r } }
+
+        progress = "Searching PDGA events…"
+        val fromPdga = runCatching { searchPdgaCourses(name) }
+        pdgaCourseResults = fromPdga.getOrDefault(emptyList())
+
+        if (fromMetrix.isFailure && fromPdga.isFailure) throw fromMetrix.exceptionOrNull()!!
+        if (courseResults.isNullOrEmpty() && pdgaCourseResults.isNullOrEmpty()) {
+            message = "No courses named \"$name\" found in ${state.countryCode} on Disc Golf Metrix or in PDGA events"
+        }
+    }
+
+    /** Layouts of the newest PDGA events whose name contains [name] (Metrix does not list every course). */
+    private suspend fun searchPdgaCourses(name: String): List<PdgaCourseResult> {
+        val to = LocalDate.now()
+        val events = pdga.searchEvents(state.countryCode, to.minusYears(SEARCH_YEARS), to, name.trim(), maxPages = 2)
+            .sortedByDescending { it.date }
+            .take(PDGA_EVENTS_FOR_COURSE_SEARCH)
+        val found = events.flatMap { event ->
+            runCatching { pdga.fetchEventLayouts(event.id) }.getOrDefault(emptyList()).map { it to event }
+        }
+        return PdgaCourseSearch.group(found)
+    }
+
+    fun createLayoutFromPdgaSearch(result: PdgaCourseResult) = work {
+        val layout = Layouts.fromPdgaSearch(newId(), result, state.countryCode)
+        addLayout(layout)
+        findRounds(layout.id)
     }
 
     /** Creates a layout from a course search result, then looks for PDGA rounds on it. */
@@ -201,6 +237,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         newLayoutEvent = null
         newLayoutMetrix = null
         courseResults = null
+        pdgaCourseResults = null
         val checkRating = (backStack.lastOrNull() as? Screen.NewLayout)?.thenCheckRating == true
         replace(if (checkRating) Screen.RatingCheck(layout.id) else Screen.LayoutDetail(layout.id))
     }

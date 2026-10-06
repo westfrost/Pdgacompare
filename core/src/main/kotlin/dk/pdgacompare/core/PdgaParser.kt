@@ -232,6 +232,13 @@ object PdgaParser {
         }
     }
 
+    /** Layouts (with hole pars and lengths) of an event, from PDGA Live's event summary. */
+    fun parseLiveEventLayouts(json: String): List<PdgaLayoutInfo> {
+        val root = lenientJson.parseToJsonElement(json).obj() ?: return emptyList()
+        val data = root.field("data", "Data").obj() ?: root
+        return data.field("Layouts", "layouts").objects().map(::liveLayout)
+    }
+
     private fun liveLayout(o: JsonObject): PdgaLayoutInfo {
         val inMeters = o.field("Units").str()?.lowercase()?.startsWith("m") == true
         fun meters(v: Int?) = v?.let { if (inMeters) it else (it * FEET_TO_METERS).roundToInt() }

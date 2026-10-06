@@ -30,6 +30,29 @@ class LiveSmokeTest {
         val layout = Layouts.fromMetrixSearch("x", ref, holes, country)
         println("Picked ${layout.name}: ${layout.holes.size} holes, par ${layout.par}, ${layout.lengthMeters} m, course \"${layout.courseName}\", town \"${layout.city}\"")
 
+        estimateFor(layout, country)
+    }
+
+    @Test
+    fun findsCourseOnlyKnownToPdga() = runBlocking {
+        assumeTrue(System.getenv("LIVE") == "1")
+        val query = System.getenv("LIVE_PDGA_COURSE") ?: "TreeGrip"
+        val layoutHint = System.getenv("LIVE_LAYOUT") ?: "White"
+        val country = System.getenv("LIVE_COUNTRY") ?: "DK"
+        val pdga = PdgaClient()
+        val to = LocalDate.now()
+        val events = pdga.searchEvents(country, to.minusYears(4), to, query, maxPages = 2).sortedByDescending { it.date }.take(8)
+        val results = PdgaCourseSearch.group(events.flatMap { e -> pdga.fetchEventLayouts(e.id).map { it to e } })
+        println("PDGA layouts for \"$query\": ${results.size}")
+        results.forEach { println("  ${it.layout.label} [${it.town}] in ${it.eventCount} events, ${it.layout.holeDetails.size} hole details") }
+        val result = results.firstOrNull { it.layout.layoutName.orEmpty().contains(layoutHint, ignoreCase = true) } ?: results.first()
+        val layout = Layouts.fromPdgaSearch("x", result, country)
+        println("Picked ${layout.name}: ${layout.holes.map { it.par }} par ${layout.par}, estimated pars: ${layout.parsEstimated}")
+        estimateFor(layout, country)
+    }
+
+    private suspend fun estimateFor(layout: Layout, country: String) {
+        val pdga = PdgaClient()
         val terms = CourseMatch.eventSearchTerms(layout.courseName)
         val to = LocalDate.now()
         val summaries = terms.flatMap { pdga.searchEvents(country, to.minusYears(4), to, it) }.distinctBy { it.id }
@@ -47,7 +70,7 @@ class LiveSmokeTest {
         val candidates = PdgaRoundFinder.candidates(layout, events, courseEvents)
         candidates.forEach { println("Candidate ${it.layout?.label}: ${it.rounds.size} rounds in ${it.eventCount} events") }
         val pick = PdgaRoundFinder.suggest(layout, candidates)
-        println("Suggested: ${pick?.layout?.label}")
+        println("Linked: ${PdgaRoundFinder.linked(layout, candidates)?.layout?.label}, suggested: ${pick?.layout?.label}")
         assertTrue(pick != null, "no PDGA layout picked")
 
         val linked = Layouts.linkCandidate(layout, pick).first
