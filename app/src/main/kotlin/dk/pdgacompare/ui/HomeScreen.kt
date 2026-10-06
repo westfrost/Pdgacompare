@@ -14,6 +14,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -38,6 +39,10 @@ fun HomeScreen(vm: AppViewModel) {
                     onClick = { vm.navigate(Screen.NewRound()) },
                     modifier = Modifier.fillMaxWidth().height(56.dp),
                 ) { Text("Start new round") }
+                OutlinedButton(
+                    onClick = { vm.navigate(Screen.RatingCheck()) },
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp).height(48.dp),
+                ) { Text("Check a rating") }
             }
 
             item { SectionTitle("Rounds") }
@@ -69,7 +74,7 @@ fun HomeScreen(vm: AppViewModel) {
             item {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     SectionTitle("Layouts", Modifier.weight(1f))
-                    TextButton(onClick = { vm.navigate(Screen.NewLayout) }) { Text("Add layout") }
+                    TextButton(onClick = { vm.navigate(Screen.NewLayout()) }) { Text("Add layout") }
                 }
             }
             if (state.layouts.isEmpty()) {

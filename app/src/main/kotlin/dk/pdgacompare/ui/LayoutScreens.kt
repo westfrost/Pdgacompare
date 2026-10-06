@@ -246,7 +246,12 @@ fun LayoutDetailScreen(vm: AppViewModel, layoutId: String) {
                 }
             }
 
-            item { EstimateCalculator(layout) }
+            item {
+                EstimateCalculator(layout)
+                OutlinedButton(onClick = { vm.navigate(Screen.RatingCheck(layout.id)) }, modifier = Modifier.padding(top = 8.dp)) {
+                    Text("Rating table for all scores")
+                }
+            }
 
             item {
                 SectionTitle("PDGA rounds")
@@ -404,7 +409,7 @@ private fun AddEventsDialog(onAdd: (String) -> Unit, onDismiss: () -> Unit) {
 }
 
 @Composable
-private fun ChoiceDialog(vm: AppViewModel, choice: PendingChoice) {
+internal fun ChoiceDialog(vm: AppViewModel, choice: PendingChoice) {
     AlertDialog(
         onDismissRequest = { vm.resolveChoice(choice, null) },
         title = { Text("Which layout is yours?") },

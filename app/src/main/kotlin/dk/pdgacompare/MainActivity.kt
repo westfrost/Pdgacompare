@@ -29,6 +29,7 @@ import dk.pdgacompare.ui.HomeScreen
 import dk.pdgacompare.ui.LayoutDetailScreen
 import dk.pdgacompare.ui.NewLayoutScreen
 import dk.pdgacompare.ui.NewRoundScreen
+import dk.pdgacompare.ui.RatingCheckScreen
 import dk.pdgacompare.ui.ScoringScreen
 import dk.pdgacompare.ui.SummaryScreen
 
@@ -70,11 +71,12 @@ private fun AppRoot(vm: AppViewModel) {
     Box(Modifier.fillMaxSize()) {
         when (val screen = vm.screen) {
             Screen.Home -> HomeScreen(vm)
-            Screen.NewLayout -> NewLayoutScreen(vm)
+            is Screen.NewLayout -> NewLayoutScreen(vm)
             is Screen.LayoutDetail -> LayoutDetailScreen(vm, screen.layoutId)
             is Screen.NewRound -> NewRoundScreen(vm, screen.layoutId)
             is Screen.Scoring -> ScoringScreen(vm, screen.roundId)
             is Screen.Summary -> SummaryScreen(vm, screen.roundId)
+            is Screen.RatingCheck -> RatingCheckScreen(vm, screen.layoutId)
         }
         SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).navigationBarsPadding())
     }

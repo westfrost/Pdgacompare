@@ -87,7 +87,7 @@ fun NewRoundScreen(vm: AppViewModel, initialLayoutId: String?) {
             if (layouts.isEmpty()) {
                 item {
                     Text("Add a layout first.")
-                    Button(onClick = { vm.replace(Screen.NewLayout) }) { Text("Add layout") }
+                    Button(onClick = { vm.replace(Screen.NewLayout()) }) { Text("Add layout") }
                 }
             }
             items(layouts, key = { it.id }) { layout ->

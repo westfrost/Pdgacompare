@@ -34,11 +34,15 @@ import java.util.UUID
 
 sealed interface Screen {
     data object Home : Screen
-    data object NewLayout : Screen
+    /** [thenCheckRating]: open the rating check for the new layout instead of its details. */
+    data class NewLayout(val thenCheckRating: Boolean = false) : Screen
     data class LayoutDetail(val layoutId: String) : Screen
     data class NewRound(val layoutId: String? = null) : Screen
     data class Scoring(val roundId: String) : Screen
     data class Summary(val roundId: String) : Screen
+
+    /** Without a layout, the user first picks or finds one. */
+    data class RatingCheck(val layoutId: String? = null) : Screen
 }
 
 /** PDGA layouts of which the user has to pick the one that is the same as the layout. */
@@ -197,7 +201,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         newLayoutEvent = null
         newLayoutMetrix = null
         courseResults = null
-        replace(Screen.LayoutDetail(layout.id))
+        val checkRating = (backStack.lastOrNull() as? Screen.NewLayout)?.thenCheckRating == true
+        replace(if (checkRating) Screen.RatingCheck(layout.id) else Screen.LayoutDetail(layout.id))
     }
 
     fun renameLayout(id: String, name: String) = updateLayout(id) { it.copy(name = name.trim().ifEmpty { it.name }) }
