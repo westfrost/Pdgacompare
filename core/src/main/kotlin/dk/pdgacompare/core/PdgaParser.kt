@@ -15,7 +15,7 @@ data class PdgaEvent(
 ) {
     /** Distinct layouts played in the event, each with its rounds. */
     val layouts: List<Pair<PdgaLayoutInfo?, List<CalibrationRound>>>
-        get() = rounds.groupBy { it.layout?.key }.values.map { it.first().layout to it }
+        get() = PdgaRoundFinder.group(rounds).map { it.layout to it.rounds }
 }
 
 /** One row of the PDGA event search. */
@@ -154,18 +154,26 @@ object PdgaParser {
 
     private val MONTHS = listOf("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec")
 
-    /** Parses PDGA date texts like "13-Apr to 15-Apr-2024" or "30-Sep-2023 to 01-Oct-2023" (start date). */
+    /**
+     * Parses PDGA date texts to the (start) date: "13-Apr to 15-Apr-2024", "30-Sep-2023 to 01-Oct-2023"
+     * (event pages) or "January 7, 2023", "April 25 - 26, 2026" (event search).
+     */
     fun parseEventDate(text: String): String {
         val iso = Regex("(\\d{4})-(\\d{2})-(\\d{2})").find(text)
         if (iso != null) return iso.value
-        val matches = Regex("(\\d{1,2})[- ]([A-Za-z]{3})[A-Za-z]*(?:[- ,]+(\\d{4}))?").findAll(text).toList()
-        val first = matches.firstOrNull() ?: return ""
-        val month = MONTHS.indexOf(first.groupValues[2].lowercase()) + 1
+        val year = Regex("\\b(\\d{4})\\b").find(text)?.value ?: return ""
+        val dayFirst = Regex("(\\d{1,2})[- ]([A-Za-z]{3})").find(text)
+        val monthFirst = Regex("([A-Za-z]{3})[A-Za-z]*\\.? (\\d{1,2})\\b").find(text)
+        val (day, monthName) = when {
+            dayFirst != null && monthFirst != null && monthFirst.range.first < dayFirst.range.first ->
+                monthFirst.groupValues[2] to monthFirst.groupValues[1]
+            dayFirst != null -> dayFirst.groupValues[1] to dayFirst.groupValues[2]
+            monthFirst != null -> monthFirst.groupValues[2] to monthFirst.groupValues[1]
+            else -> return ""
+        }
+        val month = MONTHS.indexOf(monthName.lowercase()) + 1
         if (month == 0) return ""
-        val year = matches.firstNotNullOfOrNull { it.groupValues[3].takeIf(String::isNotEmpty) }
-            ?: Regex("(\\d{4})").find(text)?.value
-            ?: return ""
-        return "%s-%02d-%02d".format(year, month, first.groupValues[1].toInt())
+        return "%s-%02d-%02d".format(year, month, day.toInt())
     }
 
     // ---- Event search (www.pdga.com/tour/search) ---------------------------------------------

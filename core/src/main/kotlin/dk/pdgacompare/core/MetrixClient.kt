@@ -4,10 +4,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import kotlinx.serialization.json.JsonArray
 import okhttp3.OkHttpClient
+import org.jsoup.Jsoup
+import org.jsoup.parser.Parser
 import java.io.IOException
+import java.time.LocalDate
 
-data class MetrixCourse(val name: String, val holes: List<Hole>)
+data class MetrixCourse(val name: String, val holes: List<Hole>, val lengthMeters: Int? = null)
 
 private val METRIX_ARROWS = arrayOf("→", "->", "&rarr;")
 
@@ -27,7 +31,11 @@ data class MetrixCourseRef(
     val isLayout: Boolean,
     val city: String,
 ) {
-    val courseName: String get() = metrixCourseName(fullName)
+    /** Course part of the name. Entries without a parent often carry the layout after a dash or comma. */
+    val courseName: String
+        get() = metrixCourseName(fullName).let { name ->
+            if (parentId != null) name else name.split(" - ", " – ", ", ", " (").first().trim()
+        }
     val displayName: String get() = metrixDisplayName(fullName)
 }
 
@@ -49,7 +57,7 @@ class MetrixClient internal constructor(private val http: OkHttpClient) {
         var lastError: Exception? = null
         for (content in attempts) {
             try {
-                val url = "https://discgolfmetrix.com/api.php".toHttpUrl().newBuilder()
+                val url = API.toHttpUrl().newBuilder()
                     .addQueryParameter("content", content)
                     .addQueryParameter("id", ref.id.toString())
                     .apply { if (apiCode.isNotBlank()) addQueryParameter("code", apiCode.trim()) }
@@ -62,19 +70,37 @@ class MetrixClient internal constructor(private val http: OkHttpClient) {
         throw IOException("Metrix returned no holes for ${ref.id}" + (lastError?.message?.let { ": $it" } ?: ""), lastError)
     }
 
-    /** Courses and layouts in [countryCode] whose name contains [name]. */
+    private val courseLists = mutableMapOf<String, List<MetrixCourseRef>>()
+
+    /**
+     * Current layouts in [countryCode] matching [name], including the layouts of matching courses.
+     * Metrix' own name filter misses layouts (their names lack the course name) and letters like ø,
+     * so the country's whole list (a few hundred entries) is fetched once and filtered here.
+     */
     suspend fun searchCourses(name: String, countryCode: String): List<MetrixCourseRef> = withContext(Dispatchers.IO) {
-        val url = "https://discgolfmetrix.com/api.php".toHttpUrl().newBuilder()
-            .addQueryParameter("content", "courses_list")
-            .addQueryParameter("country_code", countryCode.trim().uppercase())
-            .addQueryParameter("name", "%${name.trim()}%")
-            .build()
-        MetrixParser.parseCourseList(http.getText(url.toString()))
+        val code = countryCode.trim().uppercase()
+        val all = courseLists[code] ?: run {
+            val url = "$API".toHttpUrl().newBuilder()
+                .addQueryParameter("content", "courses_list")
+                .addQueryParameter("country_code", code)
+                .build()
+            MetrixParser.parseCourseList(http.getText(url.toString()), LocalDate.now()).also { courseLists[code] = it }
+        }
+        MetrixParser.search(all, name)
+    }
+
+    /** Holes of a Metrix course or layout, read from its public page (the API needs a personal code). */
+    suspend fun fetchCourseHoles(id: Long, apiCode: String): MetrixCourse = withContext(Dispatchers.IO) {
+        val fromPage = runCatching { MetrixParser.parseCoursePage(http.getText("https://discgolfmetrix.com/course/$id")) }
+        fromPage.getOrNull() ?: if (apiCode.isNotBlank()) fetch("https://discgolfmetrix.com/course/$id", apiCode)
+        else throw IOException("Could not read the holes of Metrix course $id", fromPage.exceptionOrNull())
     }
 
     data class Reference(val id: Long, val isCourse: Boolean?)
 
     companion object {
+        private const val API = "https://discgolfmetrix.com/api.php"
+
         fun parseReference(input: String): Reference? {
             val text = input.trim()
             Regex("course/(\\d+)").find(text)?.let { return Reference(it.groupValues[1].toLong(), true) }
@@ -85,6 +111,7 @@ class MetrixClient internal constructor(private val http: OkHttpClient) {
 }
 
 object MetrixParser {
+    private const val MIN_METERS_PER_HOLE = 25
     private val HOLE_KEYS = arrayOf("baskets", "Baskets", "holes", "Holes", "Tracks", "tracks")
 
     /** Returns null when the response contains no holes. */
@@ -104,24 +131,48 @@ object MetrixParser {
         return MetrixCourse(name, holes)
     }
 
-    /** Parses `content=courses_list`, leaving out courses that no longer exist. */
-    fun parseCourseList(json: String): List<MetrixCourseRef> {
+    /** Parses `content=courses_list`, leaving out courses that had ended by [today]. */
+    fun parseCourseList(json: String, today: LocalDate): List<MetrixCourseRef> {
         val root = lenientJson.parseToJsonElement(json)
-        val items = root.objects().takeIf { root is kotlinx.serialization.json.JsonArray }
-            ?: root.obj()?.field("courses", "Courses", "data").objects()
-            ?: emptyList()
-        return items.mapNotNull { c ->
+        val items = if (root is JsonArray) root.objects() else root.obj()?.field("courses", "Courses", "data").objects()
+        val refs = items.mapNotNull { c ->
             val id = c.field("ID", "Id").str()?.toLongOrNull() ?: return@mapNotNull null
-            val ended = c.field("Enddate", "EndDate").str()
-            if (ended != null && !ended.startsWith("0000")) return@mapNotNull null
+            val ended = c.field("Enddate", "EndDate").str()?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+            if (ended != null && ended < today) return@mapNotNull null
             MetrixCourseRef(
                 id = id,
                 parentId = c.field("ParentID", "ParentId").str()?.toLongOrNull()?.takeIf { it > 0 },
-                fullName = c.field("Fullname", "Name").str() ?: return@mapNotNull null,
+                fullName = c.field("Fullname", "Name").str()?.let { Parser.unescapeEntities(it, false) } ?: return@mapNotNull null,
                 isLayout = c.field("Type").str() != "1",
-                city = c.field("City", "Area").str().orEmpty(),
+                city = c.field("City").str() ?: c.field("Area").str().orEmpty(),
             )
         }
+        // Layouts often have no town of their own; use their course's.
+        val byId = refs.associateBy { it.id }
+        return refs.map { r -> if (r.city.isBlank()) r.copy(city = r.parentId?.let { byId[it]?.city }.orEmpty()) else r }
+    }
+
+    /** Layouts (and courses without layouts) whose name, or whose course's name, matches [query]. */
+    fun search(all: List<MetrixCourseRef>, query: String): List<MetrixCourseRef> {
+        val words = CourseMatch.searchWords(query)
+        if (words.isEmpty()) return emptyList()
+        fun matches(r: MetrixCourseRef) = CourseMatch.searchWords(r.fullName).let { name -> words.all { w -> name.any { it.contains(w) } } }
+        val matchingCourses = all.filter { !it.isLayout && matches(it) }.map { it.id }.toSet()
+        return all.filter { it.isLayout && (matches(it) || it.parentId in matchingCourses) }
+            .sortedBy { it.fullName.lowercase() }
+    }
+
+    /** Reads hole pars from a course page (discgolfmetrix.com/course/ID): the first "Par" row of the scorecard. */
+    fun parseCoursePage(html: String): MetrixCourse {
+        val doc = Jsoup.parse(html)
+        val name = doc.selectFirst("h1")?.text()?.trim().orEmpty().ifEmpty { "Metrix course" }
+        val parRow = doc.selectFirst("tr.par") ?: throw IOException("No scorecard on the Metrix course page")
+        val pars = parRow.select("td.center").mapNotNull { it.text().trim().toIntOrNull() }
+        if (pars.isEmpty()) throw IOException("No hole pars on the Metrix course page")
+        val length = Regex("Length:\\s*([\\d.,]+)\\s*m\\b").find(doc.text())?.groupValues?.get(1)?.replace(Regex("[.,]"), "")?.toIntOrNull()
+            // Some courses carry nonsense like "18 baskets, 75m".
+            ?.takeIf { it >= pars.size * MIN_METERS_PER_HOLE }
+        return MetrixCourse(name, pars.mapIndexed { i, par -> Hole(i + 1, par) }, length)
     }
 
     private fun hole(h: JsonObject, index: Int) = Hole(

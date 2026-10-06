@@ -37,12 +37,17 @@ class LayoutsAndMetrixTest {
         // Re-adding the same event adds nothing new.
         assertEquals(0, Layouts.addMatchingRounds(layout, event(2, 1 to long, 2 to main)).second)
 
+        // The same layout under another name in another event is picked up too.
         val renamed = main.copy(layoutName = "Main course")
-        val other = event(3, 1 to renamed)
-        val (linked, linkedCount) = Layouts.linkCandidate(layout, Candidate(renamed, other.rounds))
+        val (withRenamed, renamedCount) = Layouts.addMatchingRounds(layout, event(3, 1 to renamed))
+        assertEquals(1, renamedCount)
+        assertEquals(4, withRenamed.calibrationRounds.size)
+
+        // Linking another layout makes its rounds count as well.
+        val (linked, linkedCount) = Layouts.linkCandidate(withRenamed, PdgaRoundFinder.group(event(4, 1 to long).rounds).single())
         assertEquals(1, linkedCount)
-        assertEquals(setOf(main.key, renamed.key), linked.pdgaLayoutKeys)
-        assertEquals(4, linked.calibrationRounds.size)
+        assertEquals(2, linked.pdgaLayouts.size)
+        assertEquals(1, Layouts.addMatchingRounds(linked, event(5, 1 to long)).second)
     }
 
     @Test

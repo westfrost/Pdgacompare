@@ -15,6 +15,7 @@ object Layouts {
         id = id,
         name = ref.displayName,
         holes = course?.holes ?: guessHoles(18, null),
+        lengthMeters = course?.lengthMeters ?: course?.holes?.takeIf { h -> h.all { it.lengthMeters != null } }?.sumOf { it.lengthMeters!! },
         source = "Disc Golf Metrix",
         parsEstimated = course == null,
         holesGuessed = course == null,
@@ -25,7 +26,7 @@ object Layouts {
 
     /** Declares the candidate PDGA layout to be the same as [layout] and adds its rounds. */
     fun linkCandidate(layout: Layout, candidate: Candidate): Pair<Layout, Int> {
-        var linked = layout.copy(pdgaLayoutKeys = layout.pdgaLayoutKeys + candidate.key)
+        var linked = layout.copy(pdgaLayouts = (layout.pdgaLayouts + candidate.layouts).distinctBy { it.key })
         val pdga = candidate.layout
         if (layout.holesGuessed && pdga?.holes != null) {
             val details = pdga.holeDetails.takeIf { it.size == pdga.holes }
@@ -47,8 +48,8 @@ object Layouts {
             name = layout?.let { listOfNotNull(it.courseName, it.layoutName).joinToString(" - ") }
                 ?.ifBlank { null } ?: event.name,
             holes = holes ?: guessHoles(layout?.holes ?: 18, layout?.par),
-            pdgaLayoutKeys = setOf(layout?.key.orEmpty()),
-            calibrationRounds = event.rounds.filter { it.layout?.key == layout?.key },
+            pdgaLayouts = listOf(layout ?: PdgaLayoutInfo()),
+            calibrationRounds = event.rounds.filter { (layout ?: PdgaLayoutInfo()).sameAs(it.layout) },
             source = "PDGA",
             parsEstimated = generated && layout?.par != null,
             courseName = layout?.courseName.orEmpty(),
@@ -64,10 +65,8 @@ object Layouts {
     }
 
     /** Adds the event's rounds played on the layout's PDGA layouts. Returns the layout and how many rounds were added. */
-    fun addMatchingRounds(layout: Layout, event: PdgaEvent): Pair<Layout, Int> {
-        val matching = event.rounds.filter { (it.layout?.key ?: "") in layout.pdgaLayoutKeys }
-        return addRounds(layout, matching)
-    }
+    fun addMatchingRounds(layout: Layout, event: PdgaEvent): Pair<Layout, Int> =
+        addRounds(layout, event.rounds.filter { layout.isLinkedTo(it.layout) })
 
     private fun addRounds(layout: Layout, rounds: List<CalibrationRound>): Pair<Layout, Int> {
         val existing = layout.calibrationRounds.associateBy { it.id }

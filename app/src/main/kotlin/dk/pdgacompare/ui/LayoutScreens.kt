@@ -254,11 +254,16 @@ fun LayoutDetailScreen(vm: AppViewModel, layoutId: String) {
                     "Rated rounds from PDGA events on this layout. Estimates use the ${RatingEstimator.DEFAULT_ROUND_COUNT} most recent.",
                     style = MaterialTheme.typography.bodySmall,
                 )
-                Button(
-                    onClick = { vm.findPdgaRounds(layout.id) },
-                    enabled = !vm.busy,
-                    modifier = Modifier.padding(top = 8.dp),
-                ) { Text("Find PDGA rounds") }
+                if (layout.pdgaLayouts.isNotEmpty()) {
+                    Text("PDGA layout:", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 8.dp))
+                    for (info in layout.pdgaLayouts) Text(info.label, style = MaterialTheme.typography.bodySmall)
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
+                    Button(onClick = { vm.findPdgaRounds(layout.id) }, enabled = !vm.busy) { Text("Find PDGA rounds") }
+                    if (layout.pdgaLayouts.isNotEmpty()) {
+                        OutlinedButton(onClick = { vm.changePdgaLayout(layout.id) }, enabled = !vm.busy) { Text("Change PDGA layout") }
+                    }
+                }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = { addingEvents = true }, enabled = !vm.busy) { Text("Add by link") }
                     OutlinedButton(onClick = { vm.refreshPdgaEvents(layout.id) }, enabled = !vm.busy) { Text("Refresh") }
@@ -407,8 +412,14 @@ private fun ChoiceDialog(vm: AppViewModel, choice: PendingChoice) {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(choice.text, style = MaterialTheme.typography.bodySmall)
                 for (candidate in choice.candidates) {
-                    Card(Modifier.fillMaxWidth().clickable { vm.resolveChoice(choice, candidate) }) {
+                    val suggested = candidate == choice.suggested
+                    Card(
+                        Modifier.fillMaxWidth().clickable { vm.resolveChoice(choice, candidate) },
+                        colors = if (suggested) CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+                        else CardDefaults.cardColors(),
+                    ) {
                         Column(Modifier.padding(12.dp)) {
+                            if (suggested) Text("Best match", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                             Text(candidate.layout?.label ?: "Layout not stated by PDGA", fontWeight = FontWeight.SemiBold)
                             Text(
                                 "${candidate.rounds.size} round(s) in ${candidate.eventCount} event(s)",

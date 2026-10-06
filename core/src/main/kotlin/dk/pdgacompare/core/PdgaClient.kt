@@ -12,6 +12,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.IOException
 import java.time.LocalDate
+import java.util.Locale
 import java.util.concurrent.TimeUnit
 
 internal fun defaultHttpClient(): OkHttpClient = OkHttpClient.Builder()
@@ -57,8 +58,9 @@ class PdgaClient internal constructor(private val http: OkHttpClient) {
     }
 
     /**
-     * Searches PDGA events in [countryCode] between the dates, optionally by event name.
-     * Reads result pages until a page brings nothing new or [maxPages] is reached.
+     * Searches PDGA events in [countryCode] (ISO code, e.g. "DK") between the dates, newest first,
+     * optionally by part of the event name. Reads result pages until one brings nothing new or
+     * [maxPages] is reached.
      */
     suspend fun searchEvents(
         countryCode: String,
@@ -73,7 +75,10 @@ class PdgaClient internal constructor(private val http: OkHttpClient) {
                 .addQueryParameter("OfficialName", name.orEmpty())
                 .addQueryParameter("date_filter[min][date]", from.toString())
                 .addQueryParameter("date_filter[max][date]", to.toString())
-                .addQueryParameter("Country[]", countryCode.trim().uppercase())
+                // The search wants the English country name ("Denmark").
+                .addQueryParameter("Country[]", Locale("", countryCode.trim().uppercase()).getDisplayCountry(Locale.ENGLISH))
+                .addQueryParameter("order", "StartDate")
+                .addQueryParameter("sort", "desc")
                 .apply { if (page > 0) addQueryParameter("page", page.toString()) }
                 .build()
             val results = PdgaParser.parseEventSearch(http.getText(url.toString()))

@@ -42,7 +42,15 @@ sealed interface Screen {
 }
 
 /** PDGA layouts of which the user has to pick the one that is the same as the layout. */
-data class PendingChoice(val layoutId: String, val text: String, val candidates: List<Candidate>)
+data class PendingChoice(
+    val layoutId: String,
+    val text: String,
+    val candidates: List<Candidate>,
+    /** The best guess, shown first and marked. */
+    val suggested: Candidate? = null,
+    /** Choosing replaces the layout's current PDGA layout and rounds (switching e.g. from white to yellow tees). */
+    val replace: Boolean = false,
+)
 
 private const val SEARCH_YEARS = 4L
 private const val MAX_EVENTS_TO_CHECK = 30
@@ -160,11 +168,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     /** Creates a layout from a course search result, then looks for PDGA rounds on it. */
     fun createLayoutFromSearch(ref: MetrixCourseRef) = work {
         progress = "Loading holes from Disc Golf Metrix…"
-        val course = try {
-            metrix.fetch("https://discgolfmetrix.com/course/${ref.id}", state.metrixCode)
-        } catch (e: Exception) {
-            null
-        }
+        val course = runCatching { metrix.fetchCourseHoles(ref.id, state.metrixCode) }.getOrNull()
         val layout = Layouts.fromMetrixSearch(newId(), ref, course, state.countryCode)
         addLayout(layout)
         findRounds(layout.id)
@@ -213,24 +217,33 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     /** Searches PDGA for events on the layout's course and adds their rounds. */
     fun findPdgaRounds(layoutId: String) = work { findRounds(layoutId) }
 
-    private suspend fun findRounds(layoutId: String) {
+    /** Lets the user pick another PDGA layout on the course, replacing the current one. */
+    fun changePdgaLayout(layoutId: String) = work { findRounds(layoutId, choose = true) }
+
+    /**
+     * Finds PDGA rounds on the layout's course. The layout's already linked PDGA layout, or the only one
+     * on the course, is used directly; otherwise (or with [choose]) the user picks among them.
+     */
+    private suspend fun findRounds(layoutId: String, choose: Boolean = false) {
         val start = layout(layoutId) ?: return
         val course = start.courseName.ifBlank { start.name }
         val country = start.countryCode.ifBlank { state.countryCode }
-        val keyword = CourseMatch.keyword(course) ?: error("\"$course\" is too generic to search for")
+        val terms = CourseMatch.eventSearchTerms(course).ifEmpty { error("\"$course\" is too generic to search for") }
         val to = LocalDate.now()
         val from = to.minusYears(SEARCH_YEARS)
 
         progress = "Searching PDGA events in $country…"
-        val byName = runCatching { pdga.searchEvents(country, from, to, keyword) }
-        // Events are often named after the club or town, not the course: also try the course's town.
+        val byName = terms.map { term -> runCatching { pdga.searchEvents(country, from, to, term) } }
+        // Events are not always named after the course: also look at events in the course's town.
         val byTown = runCatching {
             if (start.city.isBlank()) emptyList()
-            else pdga.searchEvents(country, from, to, maxPages = 15).filter { CourseMatch.locationMatches(it.location, start.city) }
+            else pdga.searchEvents(country, from, to, maxPages = 8).filter { CourseMatch.locationMatches(it.location, start.city) }
         }
-        if (byName.isFailure && byTown.getOrNull().isNullOrEmpty()) throw byName.exceptionOrNull()!!
+        if (byName.all { it.isFailure } && byTown.getOrNull().isNullOrEmpty()) throw byName.first().exceptionOrNull()!!
 
-        val candidates = (byName.getOrDefault(emptyList()) + byTown.getOrDefault(emptyList()))
+        // Events found by the course's name are on the course even when PDGA names the course differently.
+        val courseEvents = byName.flatMap { it.getOrDefault(emptyList()) }.map { it.id }.toSet()
+        val candidates = (byName.flatMap { it.getOrDefault(emptyList()) } + byTown.getOrDefault(emptyList()))
             .distinctBy { it.id }
             .sortedByDescending { it.date }
             .take(MAX_EVENTS_TO_CHECK)
@@ -238,15 +251,17 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         for ((i, summary) in candidates.withIndex()) {
             progress = "Checking PDGA event ${i + 1} of ${candidates.size}: ${summary.name}"
             fetched += runCatching { fetchEvent(summary.id) }.getOrNull() ?: continue
-            val pick = PdgaRoundFinder.autoPick(start, PdgaRoundFinder.candidates(start, fetched))
+            // Enough once the layout the user will (probably) take has five rounds.
+            val found = PdgaRoundFinder.candidates(start, fetched, courseEvents)
+            val pick = PdgaRoundFinder.suggest(start, found)
             val total = (pick?.rounds?.map { it.id }.orEmpty() + start.calibrationRounds.map { it.id }).distinct().size
             if (pick != null && total >= RatingEstimator.DEFAULT_ROUND_COUNT) break
         }
 
-        val found = PdgaRoundFinder.candidates(start, fetched)
-        val searched = "checked ${fetched.size} of ${candidates.size} PDGA events found for \"$keyword\"" +
+        val found = PdgaRoundFinder.candidates(start, fetched, courseEvents)
+        val searched = "checked ${fetched.size} of ${candidates.size} PDGA events found for ${terms.joinToString { "\"$it\"" }}" +
             if (start.city.isBlank()) "" else " and ${start.city}"
-        val pick = PdgaRoundFinder.autoPick(start, found)
+        val pick = if (choose) null else PdgaRoundFinder.linked(start, found) ?: found.singleOrNull()
         when {
             found.isEmpty() -> message = "No PDGA rounds found on $course ($searched). You can add events by link instead."
             pick != null -> {
@@ -254,7 +269,16 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 updateLayout(layoutId) { updated }
                 message = "Added $count PDGA round${if (count == 1) "" else "s"} on ${pick.layout?.label ?: course} ($searched)"
             }
-            else -> pendingChoices += PendingChoice(layoutId, "PDGA has several layouts on $course. Which one do you play?", found)
+            else -> {
+                val suggested = PdgaRoundFinder.suggest(start, found)
+                pendingChoices += PendingChoice(
+                    layoutId,
+                    "PDGA has several layouts on $course. Pick the one you play — white and yellow tees can have the same par.",
+                    listOfNotNull(suggested) + found.filter { it != suggested },
+                    suggested,
+                    replace = choose,
+                )
+            }
         }
     }
 
@@ -294,7 +318,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             val (updated, count) = Layouts.addMatchingRounds(layout, event)
             updateLayout(layoutId) { updated }
             added += count
-            if (event.rounds.none { (it.layout?.key ?: "") in layout.pdgaLayoutKeys }) {
+            if (event.rounds.none { layout.isLinkedTo(it.layout) }) {
                 val options = event.layouts.map { (info, rounds) -> Candidate(info, rounds) }
                 pendingChoices += PendingChoice(
                     layoutId,
@@ -312,7 +336,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun resolveChoice(choice: PendingChoice, candidate: Candidate?) {
         pendingChoices.remove(choice)
         if (candidate == null) return
-        val current = layout(choice.layoutId) ?: return
+        val current = layout(choice.layoutId)?.let {
+            if (choice.replace) it.copy(pdgaLayouts = emptyList(), calibrationRounds = emptyList()) else it
+        } ?: return
         val (updated, count) = Layouts.linkCandidate(current, candidate)
         updateLayout(choice.layoutId) { updated }
         message = "Added $count PDGA round${if (count == 1) "" else "s"}"

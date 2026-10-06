@@ -19,10 +19,25 @@ data class PdgaLayoutInfo(
     val lengthMeters: Int? = null,
     val holeDetails: List<Hole> = emptyList(),
 ) {
-    /** Identifies "the same layout" across events. */
+    /** Identifies the layout within an event. Across events use [sameAs]. */
     val key: String
-        get() = listOf(normalize(courseName), normalize(layoutName), holes?.toString().orEmpty(), par?.toString().orEmpty())
+        get() = listOf(normalize(courseName), holes?.toString().orEmpty(), par?.toString().orEmpty(), lengthMeters?.toString().orEmpty())
             .joinToString("|")
+
+    /**
+     * True when [other] is the same physical layout: same course, holes and par, and lengths within a
+     * few percent. Layout names are ignored because tournament directors name the same tee set
+     * differently per event ("Sommer - Yellow tee", "DNA Tour - Gul", "... Rd3"), and measured
+     * lengths vary a little (1945 m / 1922 m).
+     */
+    fun sameAs(other: PdgaLayoutInfo?): Boolean {
+        val o = other ?: PdgaLayoutInfo()
+        if (holes != o.holes || par != o.par) return false
+        if (normalize(courseName) != normalize(o.courseName) && !CourseMatch.sameCourse(courseName, o.courseName)) return false
+        val a = lengthMeters ?: return true
+        val b = o.lengthMeters ?: return true
+        return kotlin.math.abs(a - b) <= LENGTH_TOLERANCE * maxOf(a, b)
+    }
 
     val label: String
         get() {
@@ -38,6 +53,11 @@ data class PdgaLayoutInfo(
 
     private fun normalize(s: String?): String =
         s.orEmpty().lowercase().replace(Regex("[^\\p{L}\\p{N}]+"), " ").trim()
+
+    companion object {
+        /** Lengths within this fraction of each other count as the same layout. */
+        const val LENGTH_TOLERANCE = 0.05
+    }
 }
 
 @Serializable
@@ -65,8 +85,8 @@ data class Layout(
     val id: String,
     val name: String,
     val holes: List<Hole>,
-    /** PDGA layouts (see [PdgaLayoutInfo.key]) that count as this layout. */
-    val pdgaLayoutKeys: Set<String> = emptySet(),
+    /** PDGA layouts that count as this layout (compared with [PdgaLayoutInfo.sameAs]). */
+    val pdgaLayouts: List<PdgaLayoutInfo> = emptyList(),
     val calibrationRounds: List<CalibrationRound> = emptyList(),
     val source: String = "Manual",
     /** True when hole pars were guessed from a total par and should be checked by the user. */
@@ -77,8 +97,12 @@ data class Layout(
     val courseName: String = "",
     val city: String = "",
     val countryCode: String = "",
+    /** Total length, when known; helps telling layouts with the same par apart. */
+    val lengthMeters: Int? = null,
 ) {
     val par: Int get() = holes.sumOf { it.par }
+
+    fun isLinkedTo(info: PdgaLayoutInfo?): Boolean = pdgaLayouts.any { it.sameAs(info) }
 }
 
 @Serializable

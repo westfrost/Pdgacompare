@@ -5,8 +5,8 @@ your score would have got, based on real PDGA results on the same layout.
 
 ## How the rating estimate works
 
-1. A layout is linked to one or more PDGA events played on it. The app reads each event's
-   results (score and round rating of every player, all divisions combined) per round and layout.
+1. A layout is linked to a PDGA layout on the same course. The app reads the results (score and
+   round rating of every player) of PDGA events played on it.
 2. For each of the **5 most recent** PDGA rounds on the layout, it takes the results on and
    around your score (±2 throws, widened until there are at least two different scores) and
    fits a straight line through them. Within one PDGA round, rating is linear in score, so the
@@ -14,16 +14,16 @@ your score would have got, based on real PDGA results on the same layout.
 3. The estimate is the average of those 5 rounds. "Show details" on the scorecard lists every
    round used.
 
-Rounds on a PDGA layout with a different number of holes are ignored.
-
 ## Using the app
 
-- **Add layout → From a PDGA event**: paste a PDGA event link (`pdga.com/tour/event/12345`) and
-  pick the layout you play. Hole pars come from PDGA when available; otherwise check them.
-- On the layout page, **Add events** to add more PDGA events. Rounds on the same PDGA layout are
-  picked up automatically; if the event named the layout differently, you are asked which one it is.
-  **Refresh** re-reads the events (unofficial ratings become official after a while).
-- Layouts can also be imported from Disc Golf Metrix (holes, par, lengths) or created manually.
+- **Add layout → Find course**: search by course name (country DK by default). Pick your layout
+  from the Disc Golf Metrix list; holes and pars are read from its Metrix page.
+- The app then searches PDGA events in the country over the last 4 years, by the course's name
+  and town, and reads the newest ones. PDGA layouts count as the same when course, holes and par
+  match and lengths are within 5% (tournament directors name the same tees differently per event).
+- If the course has one PDGA layout it is used directly; otherwise you pick it, with the best match
+  (holes, par, tee colour, length) on top. **Change PDGA layout** on the layout page switches, e.g.
+  from white to yellow tees. **Add by link** takes PDGA event links directly.
 - **Start new round**: pick layout and players (any number, no PDGA number needed), then score
   hole by hole. The summary shows each player's estimated rating.
 
@@ -38,7 +38,9 @@ The pure-Kotlin logic in `core/` can be tested without Android: `gradle -p core 
 
 ## Data sources
 
-- **PDGA**: event results pages (`www.pdga.com/tour/event/ID`), falling back to PDGA Live data.
-  PDGA has no open API for this, so changes to their site can break parsing (`core/.../PdgaParser.kt`).
-- **Disc Golf Metrix**: `discgolfmetrix.com/api.php` (some installations require an API code).
+- **Disc Golf Metrix**: course list (`api.php?content=courses_list`) and public course pages for hole pars.
+- **PDGA**: event search (`www.pdga.com/tour/search`) and event results pages
+  (`www.pdga.com/tour/event/ID`). PDGA has no open API for this, so site changes can break parsing
+  (`core/.../PdgaParser.kt`). `LIVE=1 gradle -p core test --tests '*LiveSmokeTest*' -i` runs the
+  whole search against the real sites.
 - **UDisc** has no public API and is not used.
