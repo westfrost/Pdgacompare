@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A disc golf basket: chains above a basket on a pole. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- top band -->
+    <path android:fillColor="#FFFFFF" android:pathData="M36,34h36v5h-36z" />
+    <!-- chains -->
+    <path android:fillColor="#FFFFFF" android:pathData="M40,39h2v15h-2zM47,39h2v15h-2zM53,39h2v15h-2zM59,39h2v15h-2zM66,39h2v15h-2z" />
+    <!-- basket -->
+    <path android:fillColor="#FFFFFF" android:pathData="M34,54h40l-5,11h-30z" />
+    <!-- pole and foot -->
+    <path android:fillColor="#FFFFFF" android:pathData="M52,30h4v46h-4zM44,74h20v3h-20z" />
+</vector>
