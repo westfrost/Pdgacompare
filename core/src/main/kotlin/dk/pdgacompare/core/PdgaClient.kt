@@ -30,7 +30,8 @@ internal fun OkHttpClient.getText(url: String): String {
 }
 
 /** Fetches rated round results of PDGA events. */
-class PdgaClient(private val http: OkHttpClient = defaultHttpClient()) {
+class PdgaClient internal constructor(private val http: OkHttpClient) {
+    constructor() : this(defaultHttpClient())
 
     suspend fun fetchEvent(eventId: Long): PdgaEvent = withContext(Dispatchers.IO) {
         val fromPage = runCatching { PdgaParser.parseEventHtml(http.getText("$BASE/tour/event/$eventId"), eventId) }

@@ -10,7 +10,8 @@ import java.io.IOException
 data class MetrixCourse(val name: String, val holes: List<Hole>)
 
 /** Imports hole layouts (par and length) from Disc Golf Metrix. */
-class MetrixClient(private val http: OkHttpClient = defaultHttpClient()) {
+class MetrixClient internal constructor(private val http: OkHttpClient) {
+    constructor() : this(defaultHttpClient())
 
     /**
      * [input] is a Metrix course URL (discgolfmetrix.com/course/ID), a competition URL
