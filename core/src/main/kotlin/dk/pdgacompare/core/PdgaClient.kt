@@ -7,9 +7,11 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.IOException
+import java.time.LocalDate
 import java.util.concurrent.TimeUnit
 
 internal fun defaultHttpClient(): OkHttpClient = OkHttpClient.Builder()
@@ -52,6 +54,34 @@ class PdgaClient internal constructor(private val http: OkHttpClient) {
             )
             else -> throw IOException("PDGA event $eventId has no rated rounds yet")
         }
+    }
+
+    /**
+     * Searches PDGA events in [countryCode] between the dates, optionally by event name.
+     * Reads result pages until a page brings nothing new or [maxPages] is reached.
+     */
+    suspend fun searchEvents(
+        countryCode: String,
+        from: LocalDate,
+        to: LocalDate,
+        name: String? = null,
+        maxPages: Int = 10,
+    ): List<PdgaEventSummary> = withContext(Dispatchers.IO) {
+        val found = linkedMapOf<Long, PdgaEventSummary>()
+        for (page in 0 until maxPages) {
+            val url = "$BASE/tour/search".toHttpUrl().newBuilder()
+                .addQueryParameter("OfficialName", name.orEmpty())
+                .addQueryParameter("date_filter[min][date]", from.toString())
+                .addQueryParameter("date_filter[max][date]", to.toString())
+                .addQueryParameter("Country[]", countryCode.trim().uppercase())
+                .apply { if (page > 0) addQueryParameter("page", page.toString()) }
+                .build()
+            val results = PdgaParser.parseEventSearch(http.getText(url.toString()))
+            val before = found.size
+            results.forEach { found.putIfAbsent(it.id, it) }
+            if (found.size == before) break
+        }
+        found.values.toList()
     }
 
     private suspend fun fetchLive(eventId: Long): PdgaEvent = coroutineScope {

@@ -38,7 +38,8 @@ class LayoutsAndMetrixTest {
         assertEquals(0, Layouts.addMatchingRounds(layout, event(2, 1 to long, 2 to main)).second)
 
         val renamed = main.copy(layoutName = "Main course")
-        val (linked, linkedCount) = Layouts.linkPdgaLayout(layout, event(3, 1 to renamed), renamed)
+        val other = event(3, 1 to renamed)
+        val (linked, linkedCount) = Layouts.linkCandidate(layout, Candidate(renamed, other.rounds))
         assertEquals(1, linkedCount)
         assertEquals(setOf(main.key, renamed.key), linked.pdgaLayoutKeys)
         assertEquals(4, linked.calibrationRounds.size)

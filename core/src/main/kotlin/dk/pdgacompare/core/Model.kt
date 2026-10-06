@@ -71,6 +71,12 @@ data class Layout(
     val source: String = "Manual",
     /** True when hole pars were guessed from a total par and should be checked by the user. */
     val parsEstimated: Boolean = false,
+    /** True when even the number of holes is unknown (taken from PDGA once rounds are linked). */
+    val holesGuessed: Boolean = false,
+    /** Course (not layout) name, used to recognise the course in PDGA results. */
+    val courseName: String = "",
+    val city: String = "",
+    val countryCode: String = "",
 ) {
     val par: Int get() = holes.sumOf { it.par }
 }
@@ -105,4 +111,5 @@ data class AppState(
     val rounds: List<PlayedRound> = emptyList(),
     val knownPlayers: List<String> = emptyList(),
     val metrixCode: String = "",
+    val countryCode: String = "DK",
 )

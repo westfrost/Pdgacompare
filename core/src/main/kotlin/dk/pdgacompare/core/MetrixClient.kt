@@ -9,6 +9,28 @@ import java.io.IOException
 
 data class MetrixCourse(val name: String, val holes: List<Hole>)
 
+private val METRIX_ARROWS = arrayOf("→", "->", "&rarr;")
+
+/** Metrix names layouts "Course → Layout"; this is the course part. */
+internal fun metrixCourseName(fullName: String): String = fullName.split(*METRIX_ARROWS).first().trim()
+
+internal fun metrixDisplayName(fullName: String): String =
+    fullName.split(*METRIX_ARROWS).map { it.trim() }.filter { it.isNotEmpty() }.joinToString(" - ")
+
+/** A course or layout from the Metrix course list. */
+data class MetrixCourseRef(
+    val id: Long,
+    val parentId: Long?,
+    /** E.g. "Valby Park → Main". */
+    val fullName: String,
+    /** False for a course that has layouts below it. */
+    val isLayout: Boolean,
+    val city: String,
+) {
+    val courseName: String get() = metrixCourseName(fullName)
+    val displayName: String get() = metrixDisplayName(fullName)
+}
+
 /** Imports hole layouts (par and length) from Disc Golf Metrix. */
 class MetrixClient internal constructor(private val http: OkHttpClient) {
     constructor() : this(defaultHttpClient())
@@ -38,6 +60,16 @@ class MetrixClient internal constructor(private val http: OkHttpClient) {
             }
         }
         throw IOException("Metrix returned no holes for ${ref.id}" + (lastError?.message?.let { ": $it" } ?: ""), lastError)
+    }
+
+    /** Courses and layouts in [countryCode] whose name contains [name]. */
+    suspend fun searchCourses(name: String, countryCode: String): List<MetrixCourseRef> = withContext(Dispatchers.IO) {
+        val url = "https://discgolfmetrix.com/api.php".toHttpUrl().newBuilder()
+            .addQueryParameter("content", "courses_list")
+            .addQueryParameter("country_code", countryCode.trim().uppercase())
+            .addQueryParameter("name", "%${name.trim()}%")
+            .build()
+        MetrixParser.parseCourseList(http.getText(url.toString()))
     }
 
     data class Reference(val id: Long, val isCourse: Boolean?)
@@ -70,6 +102,26 @@ object MetrixParser {
 
         val name = containers.firstNotNullOfOrNull { it.field("Fullname", "CourseName", "Name").str() } ?: "Metrix course"
         return MetrixCourse(name, holes)
+    }
+
+    /** Parses `content=courses_list`, leaving out courses that no longer exist. */
+    fun parseCourseList(json: String): List<MetrixCourseRef> {
+        val root = lenientJson.parseToJsonElement(json)
+        val items = root.objects().takeIf { root is kotlinx.serialization.json.JsonArray }
+            ?: root.obj()?.field("courses", "Courses", "data").objects()
+            ?: emptyList()
+        return items.mapNotNull { c ->
+            val id = c.field("ID", "Id").str()?.toLongOrNull() ?: return@mapNotNull null
+            val ended = c.field("Enddate", "EndDate").str()
+            if (ended != null && !ended.startsWith("0000")) return@mapNotNull null
+            MetrixCourseRef(
+                id = id,
+                parentId = c.field("ParentID", "ParentId").str()?.toLongOrNull()?.takeIf { it > 0 },
+                fullName = c.field("Fullname", "Name").str() ?: return@mapNotNull null,
+                isLayout = c.field("Type").str() != "1",
+                city = c.field("City", "Area").str().orEmpty(),
+            )
+        }
     }
 
     private fun hole(h: JsonObject, index: Int) = Hole(

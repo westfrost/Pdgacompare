@@ -18,6 +18,15 @@ data class PdgaEvent(
         get() = rounds.groupBy { it.layout?.key }.values.map { it.first().layout to it }
 }
 
+/** One row of the PDGA event search. */
+data class PdgaEventSummary(
+    val id: Long,
+    val name: String,
+    /** ISO date, empty if unknown. */
+    val date: String,
+    val location: String,
+)
+
 /** Parses PDGA event pages (www.pdga.com/tour/event/ID) and PDGA Live JSON. */
 object PdgaParser {
 
@@ -157,6 +166,24 @@ object PdgaParser {
             ?: Regex("(\\d{4})").find(text)?.value
             ?: return ""
         return "%s-%02d-%02d".format(year, month, first.groupValues[1].toInt())
+    }
+
+    // ---- Event search (www.pdga.com/tour/search) ---------------------------------------------
+
+    fun parseEventSearch(html: String): List<PdgaEventSummary> {
+        val doc = Jsoup.parse(html)
+        return doc.select("a[href*=/tour/event/]").mapNotNull { link ->
+            val id = Regex("/tour/event/(\\d+)").find(link.attr("href"))?.groupValues?.get(1)?.toLongOrNull()
+                ?: return@mapNotNull null
+            val row = link.closest("tr") ?: link.parent() ?: return@mapNotNull null
+            val dateText = row.selectFirst("td[class*=date], td[class*=Date]")?.text() ?: row.text()
+            PdgaEventSummary(
+                id = id,
+                name = link.text().trim(),
+                date = parseEventDate(dateText),
+                location = row.selectFirst("td[class*=ocation]")?.text()?.trim() ?: row.text(),
+            )
+        }.filter { it.name.isNotEmpty() }.distinctBy { it.id }
     }
 
     // ---- PDGA Live (JSON) --------------------------------------------------------------------

@@ -8,10 +8,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -41,10 +43,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import dk.pdgacompare.AppViewModel
-import dk.pdgacompare.PendingLink
+import dk.pdgacompare.PendingChoice
 import dk.pdgacompare.Screen
 import dk.pdgacompare.core.CalibrationRound
 import dk.pdgacompare.core.Layout
@@ -57,99 +60,146 @@ fun NewLayoutScreen(vm: AppViewModel) {
     var metrixInput by rememberSaveable { mutableStateOf("") }
     var manualName by rememberSaveable { mutableStateOf("") }
     var manualHoles by rememberSaveable { mutableStateOf("18") }
+    var courseQuery by rememberSaveable { mutableStateOf("") }
+    var showMore by rememberSaveable { mutableStateOf(false) }
 
     ScreenScaffold(title = "Add layout", onBack = vm::back, busy = vm.busy) { padding ->
         Column(
             Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            SectionTitle("From a PDGA event")
+            SectionTitle("Find course")
             Text(
-                "Enter a PDGA event played on the layout (event link or id, e.g. pdga.com/tour/event/12345). " +
-                    "Its rated rounds on the layout are used to estimate ratings.",
+                "Search by course name. PDGA rounds played on the layout are then looked up automatically.",
                 style = MaterialTheme.typography.bodyMedium,
             )
-            OutlinedTextField(
-                value = pdgaInput,
-                onValueChange = { pdgaInput = it },
-                label = { Text("PDGA event") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Button(onClick = { vm.fetchPdgaForNewLayout(pdgaInput) }, enabled = !vm.busy && pdgaInput.isNotBlank()) {
-                Text("Fetch event")
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = courseQuery,
+                    onValueChange = { courseQuery = it },
+                    label = { Text("Course name") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                    keyboardActions = KeyboardActions(onSearch = { vm.searchCourses(courseQuery) }),
+                    modifier = Modifier.weight(1f),
+                )
+                OutlinedTextField(
+                    value = vm.state.countryCode,
+                    onValueChange = vm::setCountryCode,
+                    label = { Text("Country") },
+                    singleLine = true,
+                    modifier = Modifier.width(96.dp),
+                )
             }
-            vm.newLayoutEvent?.let { event ->
-                Text("${event.name} · ${event.startDate}", fontWeight = FontWeight.SemiBold)
-                Text("Pick the layout you play:", style = MaterialTheme.typography.bodyMedium)
-                for ((layout, rounds) in event.layouts) {
-                    Card(Modifier.fillMaxWidth().clickable { vm.createLayoutFromPdga(event, layout) }) {
+            Button(onClick = { vm.searchCourses(courseQuery) }, enabled = !vm.busy && courseQuery.isNotBlank()) {
+                Text("Search")
+            }
+            vm.progress?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+            vm.courseResults?.let { results ->
+                if (results.isNotEmpty()) Text("Tap the layout you play:", style = MaterialTheme.typography.bodyMedium)
+                for (ref in results) {
+                    Card(Modifier.fillMaxWidth().clickable(enabled = !vm.busy) { vm.createLayoutFromSearch(ref) }) {
                         Column(Modifier.padding(12.dp)) {
-                            Text(layout?.label ?: "Layout not stated by PDGA", fontWeight = FontWeight.SemiBold)
-                            Text(
-                                "${rounds.size} round(s) · ${rounds.sumOf { it.results.size }} rated results",
-                                style = MaterialTheme.typography.bodySmall,
-                            )
+                            Text(ref.displayName, fontWeight = FontWeight.SemiBold)
+                            if (ref.city.isNotBlank()) Text(ref.city, style = MaterialTheme.typography.bodySmall)
                         }
                     }
                 }
             }
 
             HorizontalDivider(Modifier.padding(top = 16.dp))
-            SectionTitle("From Disc Golf Metrix")
-            Text(
-                "Imports holes, par and lengths. Link PDGA events to the layout afterwards to get rating estimates.",
-                style = MaterialTheme.typography.bodyMedium,
-            )
-            OutlinedTextField(
-                value = metrixInput,
-                onValueChange = { metrixInput = it },
-                label = { Text("Metrix course link or id") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            OutlinedTextField(
-                value = vm.state.metrixCode,
-                onValueChange = vm::setMetrixCode,
-                label = { Text("Metrix API code (if required)") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Button(onClick = { vm.fetchMetrixForNewLayout(metrixInput) }, enabled = !vm.busy && metrixInput.isNotBlank()) {
-                Text("Fetch course")
+            TextButton(onClick = { showMore = !showMore }) {
+                Text(if (showMore) "Hide other ways to add a layout" else "Other ways to add a layout")
             }
-            vm.newLayoutMetrix?.let { course ->
-                Card(Modifier.fillMaxWidth().clickable { vm.createLayoutFromMetrix(course) }) {
-                    Column(Modifier.padding(12.dp)) {
-                        Text(course.name, fontWeight = FontWeight.SemiBold)
-                        Text(
-                            "${course.holes.size} holes · par ${course.holes.sumOf { it.par }} · tap to create",
-                            style = MaterialTheme.typography.bodySmall,
-                        )
+            if (showMore) {
+                SectionTitle("From a PDGA event link")
+                Text(
+                    "Enter a PDGA event played on the layout (event link or id, e.g. pdga.com/tour/event/12345). " +
+                        "Its rated rounds on the layout are used to estimate ratings.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                OutlinedTextField(
+                    value = pdgaInput,
+                    onValueChange = { pdgaInput = it },
+                    label = { Text("PDGA event") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Button(onClick = { vm.fetchPdgaForNewLayout(pdgaInput) }, enabled = !vm.busy && pdgaInput.isNotBlank()) {
+                    Text("Fetch event")
+                }
+                vm.newLayoutEvent?.let { event ->
+                    Text("${event.name} · ${event.startDate}", fontWeight = FontWeight.SemiBold)
+                    Text("Pick the layout you play:", style = MaterialTheme.typography.bodyMedium)
+                    for ((layout, rounds) in event.layouts) {
+                        Card(Modifier.fillMaxWidth().clickable { vm.createLayoutFromPdga(event, layout) }) {
+                            Column(Modifier.padding(12.dp)) {
+                                Text(layout?.label ?: "Layout not stated by PDGA", fontWeight = FontWeight.SemiBold)
+                                Text(
+                                    "${rounds.size} round(s) · ${rounds.sumOf { it.results.size }} rated results",
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                            }
+                        }
                     }
                 }
-            }
 
-            HorizontalDivider(Modifier.padding(top = 16.dp))
-            SectionTitle("Manual")
-            OutlinedTextField(
-                value = manualName,
-                onValueChange = { manualName = it },
-                label = { Text("Name") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            OutlinedTextField(
-                value = manualHoles,
-                onValueChange = { manualHoles = it.filter(Char::isDigit).take(2) },
-                label = { Text("Holes") },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                modifier = Modifier.fillMaxWidth(),
-            )
-            val holes = manualHoles.toIntOrNull()?.takeIf { it in 1..36 }
-            Button(onClick = { vm.createManualLayout(manualName, holes!!) }, enabled = holes != null) {
-                Text("Create layout")
+                HorizontalDivider(Modifier.padding(top = 16.dp))
+                SectionTitle("From a Disc Golf Metrix link")
+                Text(
+                    "Imports holes, par and lengths. Link PDGA events to the layout afterwards to get rating estimates.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                OutlinedTextField(
+                    value = metrixInput,
+                    onValueChange = { metrixInput = it },
+                    label = { Text("Metrix course link or id") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = vm.state.metrixCode,
+                    onValueChange = vm::setMetrixCode,
+                    label = { Text("Metrix API code (if required)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Button(onClick = { vm.fetchMetrixForNewLayout(metrixInput) }, enabled = !vm.busy && metrixInput.isNotBlank()) {
+                    Text("Fetch course")
+                }
+                vm.newLayoutMetrix?.let { course ->
+                    Card(Modifier.fillMaxWidth().clickable { vm.createLayoutFromMetrix(course) }) {
+                        Column(Modifier.padding(12.dp)) {
+                            Text(course.name, fontWeight = FontWeight.SemiBold)
+                            Text(
+                                "${course.holes.size} holes · par ${course.holes.sumOf { it.par }} · tap to create",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                    }
+                }
+
+                HorizontalDivider(Modifier.padding(top = 16.dp))
+                SectionTitle("Manual")
+                OutlinedTextField(
+                    value = manualName,
+                    onValueChange = { manualName = it },
+                    label = { Text("Name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = manualHoles,
+                    onValueChange = { manualHoles = it.filter(Char::isDigit).take(2) },
+                    label = { Text("Holes") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                val holes = manualHoles.toIntOrNull()?.takeIf { it in 1..36 }
+                Button(onClick = { vm.createManualLayout(manualName, holes!!) }, enabled = holes != null) {
+                    Text("Create layout")
+                }
             }
         }
     }
@@ -185,7 +235,8 @@ fun LayoutDetailScreen(vm: AppViewModel, layoutId: String) {
                 Text("${layout.holes.size} holes · par ${layout.par} · from ${layout.source}")
                 if (layout.parsEstimated) {
                     Text(
-                        "PDGA only gave the total par, so the hole pars below are a guess. Please check them.",
+                        if (layout.holesGuessed) "The holes could not be loaded, so they are a guess until PDGA rounds are found. Please check them."
+                        else "Only the total par is known, so the hole pars below are a guess. Please check them.",
                         color = MaterialTheme.colorScheme.error,
                         style = MaterialTheme.typography.bodySmall,
                     )
@@ -203,10 +254,16 @@ fun LayoutDetailScreen(vm: AppViewModel, layoutId: String) {
                     "Rated rounds from PDGA events on this layout. Estimates use the ${RatingEstimator.DEFAULT_ROUND_COUNT} most recent.",
                     style = MaterialTheme.typography.bodySmall,
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
-                    Button(onClick = { addingEvents = true }, enabled = !vm.busy) { Text("Add events") }
+                Button(
+                    onClick = { vm.findPdgaRounds(layout.id) },
+                    enabled = !vm.busy,
+                    modifier = Modifier.padding(top = 8.dp),
+                ) { Text("Find PDGA rounds") }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = { addingEvents = true }, enabled = !vm.busy) { Text("Add by link") }
                     OutlinedButton(onClick = { vm.refreshPdgaEvents(layout.id) }, enabled = !vm.busy) { Text("Refresh") }
                 }
+                vm.progress?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
             }
             val sorted = RatingEstimator.mostRecent(layout.calibrationRounds)
             val inUse = RatingEstimator.mostRecent(layout.calibrationRounds, layout.holes.size)
@@ -256,7 +313,7 @@ fun LayoutDetailScreen(vm: AppViewModel, layoutId: String) {
     if (addingEvents) {
         AddEventsDialog(onAdd = { vm.addPdgaEvents(layout.id, it) }, onDismiss = { addingEvents = false })
     }
-    vm.pendingLinks.firstOrNull { it.layoutId == layout.id }?.let { PendingLinkDialog(vm, it) }
+    vm.pendingChoices.firstOrNull { it.layoutId == layout.id }?.let { ChoiceDialog(vm, it) }
 }
 
 @Composable
@@ -342,26 +399,26 @@ private fun AddEventsDialog(onAdd: (String) -> Unit, onDismiss: () -> Unit) {
 }
 
 @Composable
-private fun PendingLinkDialog(vm: AppViewModel, link: PendingLink) {
+private fun ChoiceDialog(vm: AppViewModel, choice: PendingChoice) {
     AlertDialog(
-        onDismissRequest = { vm.resolvePendingLink(link, null, use = false) },
+        onDismissRequest = { vm.resolveChoice(choice, null) },
         title = { Text("Which layout is yours?") },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    "No rounds in ${link.event.name} were on this layout's PDGA layout. Tap the layout that is the same as yours:",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                for ((layout, rounds) in link.event.layouts) {
-                    Card(Modifier.fillMaxWidth().clickable { vm.resolvePendingLink(link, layout, use = true) }) {
+                Text(choice.text, style = MaterialTheme.typography.bodySmall)
+                for (candidate in choice.candidates) {
+                    Card(Modifier.fillMaxWidth().clickable { vm.resolveChoice(choice, candidate) }) {
                         Column(Modifier.padding(12.dp)) {
-                            Text(layout?.label ?: "Layout not stated by PDGA", fontWeight = FontWeight.SemiBold)
-                            Text("${rounds.size} round(s)", style = MaterialTheme.typography.bodySmall)
+                            Text(candidate.layout?.label ?: "Layout not stated by PDGA", fontWeight = FontWeight.SemiBold)
+                            Text(
+                                "${candidate.rounds.size} round(s) in ${candidate.eventCount} event(s)",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
                         }
                     }
                 }
             }
         },
-        confirmButton = { TextButton(onClick = { vm.resolvePendingLink(link, null, use = false) }) { Text("None of them") } },
+        confirmButton = { TextButton(onClick = { vm.resolveChoice(choice, null) }) { Text("None of them") } },
     )
 }
