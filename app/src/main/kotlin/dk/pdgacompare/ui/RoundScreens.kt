@@ -63,6 +63,7 @@ import dk.pdgacompare.core.PlayerCard
 import dk.pdgacompare.core.RatingEstimator
 import kotlin.math.roundToInt
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NewRoundScreen(vm: AppViewModel, initialLayoutId: String?) {
     val layouts = vm.state.layouts
